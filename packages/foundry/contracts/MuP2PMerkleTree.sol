@@ -18,7 +18,7 @@ contract MicropayHashchain {
     // user -> merchant -> number of validated tokens
     mapping(address => mapping(address => uint256)) public trackTokensMapping;
     // token -> consumed/not consumed
-    mapping(bytes32 => uint256) public consumedTokens;
+    mapping(bytes32 => bool) public consumedTokens;
 
     error IncorrectAmount(uint256 sent, uint256 expected);
     error TokenVerificationFailed(address payer, bytes32 token);
@@ -34,6 +34,12 @@ contract MicropayHashchain {
         address indexed payer,
         address indexed merchant,
         bytes32 token
+    );
+
+    event MerchantPaid(
+        address indexed payer,
+        address indexed merchant,
+        uint256 amount
     );
 
     constructor(address utilityAddress) {
@@ -97,7 +103,7 @@ contract MicropayHashchain {
 
         (bool sent, ) = payable(msg.sender).call{value: payableAmount}("");
         require(sent, "Failed to send Ether");
-        emit MerchantPaid(payer, merchant, payableAmount);
+        emit MerchantPaid(payer, msg.sender, payableAmount);
     }
 
     receive() external payable {}
