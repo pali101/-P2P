@@ -1,0 +1,3 @@
+[submodule "muP2PSolidity"]
+	path = muP2PSolidity
+	url = https://github.com/pali101/muP2PSolidity
