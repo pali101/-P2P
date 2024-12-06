@@ -67,7 +67,7 @@ contract MicropayHashchain {
         address payer,
         bytes32 finalHashValue,
         uint256 numberOfTokensUsed
-    ) {
+    ) public {
         Channel storage channel = channelsMapping[payer][msg.sender];
         require(
             channel.amount > 0,

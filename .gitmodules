@@ -1,3 +1,6 @@
 [submodule "muP2PSolidity"]
 	path = muP2PSolidity
 	url = https://github.com/pali101/muP2PSolidity
+[submodule "packages/foundry/lib/murky"]
+	path = packages/foundry/lib/murky
+	url = https://github.com/dmfxyz/murky
