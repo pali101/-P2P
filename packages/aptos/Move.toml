@@ -1,0 +1,12 @@
+[package]
+name = "lottery"
+version = "0.1.0"
+
+[dependencies]
+AptosStdlib = { git = 'https://github.com/Entropy-Foundation/aptos-core.git', subdir = 'aptos-move/framework/aptos-stdlib', rev = 'f9652d1f0472fc60f887605ff13f779801b039e4'}
+SupraFramework = { git = 'https://github.com/Entropy-Foundation/aptos-core.git', subdir = 'aptos-move/framework/supra-framework', rev = 'f9652d1f0472fc60f887605ff13f779801b039e4'}
+SupraVrf = { git = 'https://github.com/Entropy-Foundation/vrf-interface.git', subdir = 'supra/testnet', rev = 'b6adc02cfe54aa76e02fc86b47a12a47fef800b7' }
+
+[addresses]
+lottery_address = "0x7a8dfea6683174811344e4943984f371c7e51386f00ad056f4ee03e084f1a28b"
+supra_addr = "0x186ba2ba88f4a14ca51f6ce42702c7ebdf6bfcf738d897cc98b986ded6f1219e"
