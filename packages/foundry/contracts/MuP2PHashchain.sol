@@ -25,13 +25,13 @@ contract MicropayHashchain {
         uint256 numberOfTokens,
         uint256 withdrawAfterBlocks
     );
-    event ChannelRedeemed(
-        address indexed payer,
-        address indexed merchant,
-        uint256 amountPaid,
-        bytes32 finalHashValue,
-        uint256 numberOfTokensUsed
-    );
+    //event ChannelRedeemed(
+    //    address indexed payer,
+    //    address indexed merchant,
+    //    uint256 amountPaid,
+    //    bytes32 finalHashValue,
+    //    uint256 numberOfTokensUsed
+    //);
 
     constructor(address utilityAddress) {
         utility = Utility(utilityAddress);
@@ -88,13 +88,13 @@ contract MicropayHashchain {
         (bool sent, ) = payable(msg.sender).call{value: payableAmount}("");
         require(sent, "Failed to send Ether");
 
-        emit ChannelRedeemed(
-            payer,
-            msg.sender,
-            payableAmount,
-            finalHashValue,
-            numberOfTokensUsed
-        );
+        //emit ChannelRedeemed(
+        //    payer,
+        //    msg.sender,
+        //    payableAmount,
+        //    finalHashValue,
+        //    numberOfTokensUsed
+        //);
     }
 
     receive() external payable {}
