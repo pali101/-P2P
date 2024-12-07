@@ -2,7 +2,7 @@
 pragma solidity ^0.8.26;
 
 import "forge-std/Test.sol";
-import "../src/Utility.sol";
+import "../contracts/Utility.sol";
 import "murky/src/CompleteMerkle.sol";
 
 contract UtilityTest is Test {

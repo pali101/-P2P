@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import "./Utility.sol";
 
-contract MicropayHashchain {
+contract MuP2PHashchain {
     Utility public utility;
 
     struct Channel {
