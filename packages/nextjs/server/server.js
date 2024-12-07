@@ -1,6 +1,7 @@
 const express = require('express');
 const ethers = require('ethers');
 const { Provider, Contract } = ethers;
+const { createNode, pipe, uint8ArrayFromString, uint8ArrayToString } = require('./helper');
 
 const app = express();
 const port = 3000;
@@ -24,12 +25,52 @@ const provider = new ethers.providers.JsonRpcProvider('https://sepolia.infura.io
 const signer = provider.getSigner();
 const contract = new ethers.Contract(contractAddress, contractABI, signer);
 
+// Create libp2p node for the server
+const serverNode = await createNode();
+
+// Start the server node
+await serverNode.start();
+console.log('Server node is started and listening on:', serverNode.getMultiaddrs().map((addr) => addr.toString()));
+
+// Handle incoming connections and messages
+serverNode.handle('/a-protocol', ({ stream }) => {
+  pipe(
+    stream,
+    async function (source) {
+      for await (const msg of source) {
+        const message = uint8ArrayToString(msg.subarray());
+        console.log('Received:', message);
+
+        // Parse the message
+        const data = JSON.parse(message);
+
+        if (data.type === 'connect') {
+          handleConnect(data, stream);
+        } else if (data.type === 'verifyPreImage') {
+          handleVerifyPreImage(data, stream);
+        } else if (data.type === 'redeemChannel') {
+          handleRedeemChannel(data, stream);
+        }
+      }
+    }
+  );
+});
+
+// Function to send a response back to the client
+const sendResponse = (stream, message, status) => {
+  const response = JSON.stringify({ message, status });
+  pipe(
+    [uint8ArrayFromString(response)],
+    stream
+  );
+};
+
 // Endpoint to handle client connection request
-app.post('/connect', (req, res) => {
-  const { trustAnchor, amount, numberOfTokens, withdrawAfterBlocks } = req.body;
+const handleConnect = (data, stream) => {
+  const { trustAnchor, amount, numberOfTokens, withdrawAfterBlocks } = data;
 
   if (!trustAnchor || !amount || !numberOfTokens || !withdrawAfterBlocks) {
-    return res.status(400).send('Missing required parameters');
+    return sendResponse(stream, 'Missing required parameters', 400);
   }
 
   clientData = {
@@ -39,8 +80,8 @@ app.post('/connect', (req, res) => {
     withdrawAfterBlocks
   };
 
-  res.status(200).send('Connection established');
-});
+  sendResponse(stream, 'Connection established', 200);
+};
 
 // Function to verify the event data with client data
 const verifyEventData = (event) => {
@@ -66,15 +107,15 @@ contract.on('ChannelCreated', (sender, merchant, amount, numberOfTokens, withdra
 });
 
 // Endpoint to handle preImage verification
-app.post('/verifyPreImage', (req, res) => {
+const handleVerifyPreImage = (data, stream) => {
   if (!clientData) {
-    return res.status(400).send('No active connection');
+    return sendResponse(stream, 'No active connection', 400);
   }
 
-  const { preImage } = req.body;
+  const { preImage } = data;
 
   if (!preImage) {
-    return res.status(400).send('Missing preImage');
+    return sendResponse(stream, 'Missing preImage', 400);
   }
 
   const hash = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(preImage));
@@ -85,25 +126,25 @@ app.post('/verifyPreImage', (req, res) => {
     clientData.numberOfTokens--;
 
     if (clientData.numberOfTokens === 0) {
-      return res.status(400).send('No tokens left');
+      return sendResponse(stream, 'No tokens left', 400);
     }
 
-    res.status(200).send('PreImage verified');
+    sendResponse(stream, 'PreImage verified', 200);
   } else {
-    res.status(400).send('PreImage does not match trustAnchor');
+    sendResponse(stream, 'PreImage does not match trustAnchor', 400);
   }
-});
+};
 
 // Endpoint to handle channel redemption
-app.post('/redeemChannel', async (req, res) => {
+const handleRedeemChannel = async (data, stream) => {
   if (!clientData) {
-    return res.status(400).send('No active connection');
+    return sendResponse(stream, 'No active connection', 400);
   }
 
-  const { payer, finalHashValue } = req.body;
+  const { payer, finalHashValue } = data;
 
   if (!payer || !finalHashValue) {
-    return res.status(400).send('Missing required parameters');
+    return sendResponse(stream, 'Missing required parameters', 400);
   }
 
   try {
@@ -113,14 +154,14 @@ app.post('/redeemChannel', async (req, res) => {
     console.log('Channel redeemed successfully');
     clientData = null; // Reset client data
     numberOfTokensUsed = 0; // Reset the number of tokens used
-    res.status(200).send('Channel redeemed successfully');
+    sendResponse(stream, 'Channel redeemed successfully', 200);
   } catch (error) {
     console.error('Error redeeming channel:', error);
-    res.status(500).send('Failed to redeem channel');
+    sendResponse(stream, 'Failed to redeem channel', 500);
   }
-});
+};
 
 // Start the server
 app.listen(port, () => {
-  console.log(`Server is running on http://localhost:${port}`);
+  console.log(`HTTP server is running on http://localhost:${port}`);
 });
