@@ -25,6 +25,7 @@ contract MuP2PHashchain {
         uint256 numberOfTokens,
         uint256 withdrawAfterBlocks
     );
+
     //event ChannelRedeemed(
     //    address indexed payer,
     //    address indexed merchant,
@@ -87,6 +88,14 @@ contract MuP2PHashchain {
         delete channelsMapping[payer][msg.sender];
         (bool sent, ) = payable(msg.sender).call{value: payableAmount}("");
         require(sent, "Failed to send Ether");
+
+        uint256 remainingAmount = address(this).balance;
+        if (remainingAmount > 0) {
+            (bool refundSent, ) = payable(payer).call{value: remainingAmount}(
+                ""
+            );
+            require(refundSent, "Failed to refund remaining Ether to payer");
+        }
 
         //emit ChannelRedeemed(
         //    payer,
