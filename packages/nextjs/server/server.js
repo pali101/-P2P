@@ -1,6 +1,5 @@
 const express = require('express');
 const ethers = require('ethers');
-const { Provider, Contract } = ethers;
 const { createNode, pipe, uint8ArrayFromString, uint8ArrayToString } = require('./helper');
 
 const app = express();
@@ -12,18 +11,31 @@ app.use(express.json());
 // In-memory storage for the client's data
 let clientData = null;
 let numberOfTokensUsed = 0;
+let contractType = null;
 
-// Solidity contract ABI and address
-const contractABI = [
-  "event ChannelCreated(address indexed sender, address indexed merchant, uint256 amount, uint256 numberOfTokens, uint256 withdrawAfterBlocks)",
+// Solidity contract ABIs and addresses
+const hashchainContractABI = [
+  "event ChannelCreated(address indexed payer, address indexed merchant, uint256 amount, uint256 numberOfTokens, uint256 withdrawAfterBlocks)",
+  "function createChannel(address merchant, bytes32 trustAnchor, uint256 amount, uint256 numberOfTokens, uint256 withdrawAfterBlocks) public payable",
   "function redeemChannel(address payer, bytes32 finalHashValue, uint256 numberOfTokensUsed) public"
 ];
-const contractAddress = '0xYourContractAddress'; // Replace with your contract address
+const hashchainContractAddress = '0xYourHashchainContractAddress'; // Replace with your hashchain contract address
 
-// Ethereum provider and contract instance
+const merkleTreeContractABI = [
+  "event ChannelCreated(address indexed payer, uint256 amount, uint256 numberOfTokens, uint256 withdrawAfterBlocks)",
+  "event TokenAdded(address indexed payer, address indexed merchant, bytes32 token)",
+  "event MerchantPaid(address indexed payer, address indexed merchant, uint256 amount)",
+  "function createChannel(bytes32 trustAnchor, uint256 amount, uint256 numberOfTokens, uint256 withdrawAfterBlocks) public payable",
+  "function validateToken(address payer, bytes32[] calldata merkleProof, bytes32 token) public",
+  "function payMerchant(address payer) public"
+];
+const merkleTreeContractAddress = '0xYourMerkleTreeContractAddress'; // Replace with your merkle tree contract address
+
+// Ethereum provider and contract instances
 const provider = new ethers.providers.JsonRpcProvider('https://sepolia.infura.io/v3/4ddbeaf177884a69bdf6073b94008c27');
 const signer = provider.getSigner();
-const contract = new ethers.Contract(contractAddress, contractABI, signer);
+const hashchainContract = new ethers.Contract(hashchainContractAddress, hashchainContractABI, signer);
+const merkleTreeContract = new ethers.Contract(merkleTreeContractAddress, merkleTreeContractABI, signer);
 
 // Create libp2p node for the server
 const serverNode = await createNode();
@@ -46,8 +58,10 @@ serverNode.handle('/a-protocol', ({ stream }) => {
 
         if (data.type === 'connect') {
           handleConnect(data, stream);
-        } else if (data.type === 'verifyPreImage') {
-          handleVerifyPreImage(data, stream);
+        } else if (data.type === 'validateToken') {
+          handleValidateToken(data, stream);
+        } else if (data.type === 'payMerchant') {
+          handlePayMerchant(data, stream);
         } else if (data.type === 'redeemChannel') {
           handleRedeemChannel(data, stream);
         }
@@ -67,9 +81,9 @@ const sendResponse = (stream, message, status) => {
 
 // Endpoint to handle client connection request
 const handleConnect = (data, stream) => {
-  const { trustAnchor, amount, numberOfTokens, withdrawAfterBlocks } = data;
+  const { trustAnchor, amount, numberOfTokens, withdrawAfterBlocks, contractType } = data;
 
-  if (!trustAnchor || !amount || !numberOfTokens || !withdrawAfterBlocks) {
+  if (!trustAnchor || !amount || !numberOfTokens || !withdrawAfterBlocks || !contractType) {
     return sendResponse(stream, 'Missing required parameters', 400);
   }
 
@@ -79,15 +93,35 @@ const handleConnect = (data, stream) => {
     numberOfTokens,
     withdrawAfterBlocks
   };
+  this.contractType = contractType;
 
   sendResponse(stream, 'Connection established', 200);
+
+  if (contractType === 'hashchain') {
+    hashchainContract.on('ChannelCreated', (payer, merchant, amount, numberOfTokens, withdrawAfterBlocks, event) => {
+      if (!verifyEventData({ payer, merchant, amount, numberOfTokens, withdrawAfterBlocks })) {
+        console.log('Event data does not match client data. Connection refused.');
+        return;
+      }
+      console.log('Channel created and verified successfully');
+    });
+  } else if (contractType === 'merkleTree') {
+    merkleTreeContract.on('ChannelCreated', (payer, amount, numberOfTokens, withdrawAfterBlocks, event) => {
+      if (!verifyEventData({ payer, amount, numberOfTokens, withdrawAfterBlocks })) {
+        console.log('Event data does not match client data. Connection refused.');
+        return;
+      }
+      console.log('Channel created and verified successfully');
+    });
+  }
 };
 
 // Function to verify the event data with client data
 const verifyEventData = (event) => {
-  const { sender, merchant, amount, numberOfTokens, withdrawAfterBlocks } = event;
+  const { payer, merchant, amount, numberOfTokens, withdrawAfterBlocks } = event;
 
-  if (amount !== clientData.amount ||
+  if (payer !== clientData.trustAnchor ||
+      amount !== clientData.amount ||
       numberOfTokens !== clientData.numberOfTokens ||
       withdrawAfterBlocks !== clientData.withdrawAfterBlocks) {
     return false;
@@ -96,68 +130,98 @@ const verifyEventData = (event) => {
   return true;
 };
 
-// Listen for the ChannelCreated event
-contract.on('ChannelCreated', (sender, merchant, amount, numberOfTokens, withdrawAfterBlocks, event) => {
-  if (!verifyEventData({ sender, merchant, amount, numberOfTokens, withdrawAfterBlocks })) {
-    console.log('Event data does not match client data. Connection refused.');
-    return;
-  }
-
-  console.log('Channel created and verified successfully');
-});
-
-// Endpoint to handle preImage verification
-const handleVerifyPreImage = (data, stream) => {
-  if (!clientData) {
+// Endpoint to handle token validation
+const handleValidateToken = async (data, stream) => {
+  if (!clientData || !this.contractType) {
     return sendResponse(stream, 'No active connection', 400);
   }
 
-  const { preImage } = data;
+  if (this.contractType === 'hashchain') {
+    const { preImage } = data;
 
-  if (!preImage) {
-    return sendResponse(stream, 'Missing preImage', 400);
-  }
-
-  const hash = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(preImage));
-
-  if (hash === clientData.trustAnchor) {
-    numberOfTokensUsed++;
-    clientData.trustAnchor = preImage;
-    clientData.numberOfTokens--;
-
-    if (clientData.numberOfTokens === 0) {
-      return sendResponse(stream, 'No tokens left', 400);
+    if (!preImage) {
+      return sendResponse(stream, 'Missing preImage', 400);
     }
 
-    sendResponse(stream, 'PreImage verified', 200);
-  } else {
-    sendResponse(stream, 'PreImage does not match trustAnchor', 400);
+    const hash = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(preImage));
+
+    if (hash === clientData.trustAnchor) {
+      numberOfTokensUsed++;
+      clientData.trustAnchor = preImage;
+      clientData.numberOfTokens--;
+
+      if (clientData.numberOfTokens === 0) {
+        return sendResponse(stream, 'No tokens left', 400);
+      }
+
+      sendResponse(stream, 'PreImage verified', 200);
+    } else {
+      sendResponse(stream, 'PreImage does not match trustAnchor', 400);
+    }
+  } else if (this.contractType === 'merkleTree') {
+    const { payer, merkleProof, token } = data;
+
+    if (!payer || !merkleProof || !token) {
+      return sendResponse(stream, 'Missing required parameters', 400);
+    }
+
+    try {
+      await merkleTreeContract.validateToken(payer, merkleProof, token);
+      numberOfTokensUsed++;
+      clientData.numberOfTokens--;
+
+      if (clientData.numberOfTokens === 0) {
+        return sendResponse(stream, 'No tokens left', 400);
+      }
+
+      sendResponse(stream, 'Token validated successfully', 200);
+    } catch (error) {
+      console.error('Error validating token:', error);
+      sendResponse(stream, 'Token validation failed', 400);
+    }
   }
 };
 
-// Endpoint to handle channel redemption
-const handleRedeemChannel = async (data, stream) => {
-  if (!clientData) {
+// Endpoint to handle merchant payment
+const handlePayMerchant = async (data, stream) => {
+  if (!clientData || !this.contractType) {
     return sendResponse(stream, 'No active connection', 400);
   }
 
-  const { payer, finalHashValue } = data;
+  if (this.contractType === 'hashchain') {
+    const { payer, finalHashValue, numberOfTokensUsed } = data;
 
-  if (!payer || !finalHashValue) {
-    return sendResponse(stream, 'Missing required parameters', 400);
-  }
+    if (!payer || !finalHashValue || !numberOfTokensUsed) {
+      return sendResponse(stream, 'Missing required parameters', 400);
+    }
 
-  try {
-    const tx = await contract.redeemChannel(payer, finalHashValue, numberOfTokensUsed);
-    await tx.wait();
+    try {
+      await hashchainContract.redeemChannel(payer, finalHashValue, numberOfTokensUsed);
+      console.log('Channel redeemed successfully');
+      clientData = null; // Reset client data
+      numberOfTokensUsed = 0; // Reset the number of tokens used
+      sendResponse(stream, 'Channel redeemed successfully', 200);
+    } catch (error) {
+      console.error('Error redeeming channel:', error);
+      sendResponse(stream, 'Failed to redeem channel', 500);
+    }
+  } else if (this.contractType === 'merkleTree') {
+    const { payer } = data;
 
-    console.log('Channel redeemed successfully');
-    clientData = null; // Reset client data
-    numberOfTokensUsed = 0; // Reset the number of tokens used
-    sendResponse(stream, 'Channel redeemed successfully', 200);
-  } catch (error) {
-    console.error('Error redeeming channel:', error);
-    sendResponse(stream, 'Failed to redeem channel', 500);
+    if (!payer) {
+      return sendResponse(stream, 'Missing required parameters', 400);
+    }
+
+    try {
+      await merkleTreeContract.payMerchant(payer);
+      console.log('Merchant paid successfully');
+      clientData = null; // Reset client data
+      numberOfTokensUsed = 0; // Reset the number of tokens used
+      sendResponse(stream, 'Merchant paid successfully', 200);
+    } catch (error) {
+      console.error('Error paying merchant:', error);
+      sendResponse(stream, 'Failed to pay merchant', 500);
+    }
   }
 };
 
