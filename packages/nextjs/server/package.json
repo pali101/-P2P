@@ -1,7 +1,7 @@
 {
-  "name": "micropay-hashchain-server",
+  "name": "micropay-server",
   "version": "1.0.0",
-  "description": "Server for handling micropayments using libp2p and Ethereum",
+  "description": "Chain-agnostic server for handling micropayments using libp2p",
   "main": "server.js",
   "type": "module",
   "license": "AGPL-3.0",

@@ -1,11 +1,12 @@
-// pages/walletdetails.tsx
+// pages/wallet-details.tsx
 "use client";
 import React, { useEffect, useState } from "react";
-import { useAccount } from "wagmi";  // Assuming you are using Scaffold-ETH or similar for wallet connection
+import { useAccount, useBalance } from "wagmi";
 
 const WalletDetails: React.FC = () => {
-  const { data: accountData, isError, isLoading } = useAccount();
-  const [gradient, setGradient] = useState<string>('');
+  const { address, isConnected } = useAccount();
+  const { data: balanceData, isLoading, isError } = useBalance({ address });
+  const [gradient, setGradient] = useState<string>("");
 
   // Simulate beautiful gradient animation
   useEffect(() => {
@@ -18,27 +19,37 @@ const WalletDetails: React.FC = () => {
     const interval = setInterval(() => {
       setGradient(gradients[idx]);
       idx = (idx + 1) % gradients.length;
-    }, 3000);  // Change every 3 seconds
+    }, 3000); // Change every 3 seconds
 
     return () => clearInterval(interval);
   }, []);
 
-  if (isLoading) return <div>Loading...</div>;
-  if (isError) return <div>Error loading wallet data.</div>;
+  if (!isConnected) return <div>Please connect your wallet.</div>;
+  if (isLoading) return <div>Loading balance...</div>;
+  if (isError) return <div>Error fetching balance.</div>;
 
   return (
-    <div style={{ background: gradient, transition: "background 1s ease" }} className="wallet-details-card">
+    <div
+      style={{ background: gradient, transition: "background 1s ease" }}
+      className="wallet-details-card"
+    >
       <div className="card-header">
         <img
-          src={accountData?.address ? `https://www.gravatar.com/avatar/${accountData.address}` : '/default-avatar.png'}
+          src={
+            address
+              ? `https://www.gravatar.com/avatar/${address}`
+              : "/default-avatar.png"
+          }
           alt="User Avatar"
           className="user-avatar"
         />
       </div>
       <div className="card-body">
         <h2>Account Details</h2>
-        <p>Address: {accountData?.address}</p>
-        <p>Balance: {/* You can fetch balance here */}</p>
+        <p>Address: {address}</p>
+        <p>
+          Balance: {balanceData?.formatted} {balanceData?.symbol}
+        </p>
         {/* Add any additional account details */}
       </div>
     </div>
