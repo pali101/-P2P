@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import "./UtilityMerkle.sol";
 
 contract MuP2PMerkleTree {
-    Utility public utility;
+    UtilityMerkle public utility;
 
     struct Channel {
         bytes32 trustAnchor;
